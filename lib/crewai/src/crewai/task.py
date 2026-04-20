@@ -611,35 +611,7 @@ class Task(BaseModel):
 
             self._post_agent_execution(agent)
 
-            if isinstance(result, BaseModel):
-                raw = result.model_dump_json()
-                if self.output_pydantic:
-                    pydantic_output = result
-                    json_output = None
-                elif self.output_json:
-                    pydantic_output = None
-                    json_output = result.model_dump()
-                else:
-                    pydantic_output = None
-                    json_output = None
-            elif not self._guardrails and not self._guardrail:
-                raw = result
-                pydantic_output, json_output = self._export_output(result)
-            else:
-                raw = result
-                pydantic_output, json_output = None, None
-
-            task_output = TaskOutput(
-                name=self.name or self.description,
-                description=self.description,
-                expected_output=self.expected_output,
-                raw=raw,
-                pydantic=pydantic_output,
-                json_dict=json_output,
-                agent=agent.role,
-                output_format=self._get_output_format(),
-                messages=agent.last_messages,  # type: ignore[attr-defined]
-            )
+            task_output = self._build_task_output(result=result, agent=agent)
 
             if self._guardrails:
                 for idx, guardrail in enumerate(self._guardrails):
@@ -680,10 +652,12 @@ class Task(BaseModel):
 
             if self.output_file:
                 content = (
-                    json_output
-                    if json_output
+                    task_output.json_dict
+                    if task_output.json_dict
                     else (
-                        pydantic_output.model_dump_json() if pydantic_output else result
+                        task_output.pydantic.model_dump_json()
+                        if task_output.pydantic
+                        else result
                     )
                 )
                 self._save_file(content)
@@ -733,35 +707,7 @@ class Task(BaseModel):
 
             self._post_agent_execution(agent)
 
-            if isinstance(result, BaseModel):
-                raw = result.model_dump_json()
-                if self.output_pydantic:
-                    pydantic_output = result
-                    json_output = None
-                elif self.output_json:
-                    pydantic_output = None
-                    json_output = result.model_dump()
-                else:
-                    pydantic_output = None
-                    json_output = None
-            elif not self._guardrails and not self._guardrail:
-                raw = result
-                pydantic_output, json_output = self._export_output(result)
-            else:
-                raw = result
-                pydantic_output, json_output = None, None
-
-            task_output = TaskOutput(
-                name=self.name or self.description,
-                description=self.description,
-                expected_output=self.expected_output,
-                raw=raw,
-                pydantic=pydantic_output,
-                json_dict=json_output,
-                agent=agent.role,
-                output_format=self._get_output_format(),
-                messages=agent.last_messages,  # type: ignore[attr-defined]
-            )
+            task_output = self._build_task_output(result=result, agent=agent)
 
             if self._guardrails:
                 for idx, guardrail in enumerate(self._guardrails):
@@ -803,10 +749,12 @@ class Task(BaseModel):
 
             if self.output_file:
                 content = (
-                    json_output
-                    if json_output
+                    task_output.json_dict
+                    if task_output.json_dict
                     else (
-                        pydantic_output.model_dump_json() if pydantic_output else result
+                        task_output.pydantic.model_dump_json()
+                        if task_output.pydantic
+                        else result
                     )
                 )
                 self._save_file(content)
@@ -1079,6 +1027,37 @@ Follow these guidelines:
 
         return pydantic_output, json_output
 
+    def _build_task_output(self, result: Any, agent: BaseAgent) -> TaskOutput:
+        if isinstance(result, BaseModel):
+            raw = result.model_dump_json()
+            if self.output_pydantic:
+                pydantic_output = result
+                json_output = None
+            elif self.output_json:
+                pydantic_output = None
+                json_output = result.model_dump()
+            else:
+                pydantic_output = None
+                json_output = None
+        elif not self._guardrails and not self._guardrail:
+            raw = result
+            pydantic_output, json_output = self._export_output(result)
+        else:
+            raw = result
+            pydantic_output, json_output = None, None
+
+        return TaskOutput(
+            name=self.name or self.description,
+            description=self.description,
+            expected_output=self.expected_output,
+            raw=raw,
+            pydantic=pydantic_output,
+            json_dict=json_output,
+            agent=agent.role,
+            output_format=self._get_output_format(),
+            messages=agent.last_messages,  # type: ignore[attr-defined]
+        )
+
     def _get_output_format(self) -> OutputFormat:
         if self.output_json:
             return OutputFormat.JSON
@@ -1240,19 +1219,7 @@ Follow these guidelines:
                 context=context,
                 tools=tools,
             )
-
-            pydantic_output, json_output = self._export_output(result)
-            task_output = TaskOutput(
-                name=self.name or self.description,
-                description=self.description,
-                expected_output=self.expected_output,
-                raw=result,
-                pydantic=pydantic_output,
-                json_dict=json_output,
-                agent=agent.role,
-                output_format=self._get_output_format(),
-                messages=agent.last_messages,  # type: ignore[attr-defined]
-            )
+            task_output = self._build_task_output(result=result, agent=agent)
 
         return task_output
 
@@ -1336,18 +1303,6 @@ Follow these guidelines:
                 context=context,
                 tools=tools,
             )
-
-            pydantic_output, json_output = self._export_output(result)
-            task_output = TaskOutput(
-                name=self.name or self.description,
-                description=self.description,
-                expected_output=self.expected_output,
-                raw=result,
-                pydantic=pydantic_output,
-                json_dict=json_output,
-                agent=agent.role,
-                output_format=self._get_output_format(),
-                messages=agent.last_messages,  # type: ignore[attr-defined]
-            )
+            task_output = self._build_task_output(result=result, agent=agent)
 
         return task_output

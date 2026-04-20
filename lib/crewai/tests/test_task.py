@@ -289,6 +289,55 @@ def test_guardrail_type_error():
         )
 
 
+def test_guardrail_retry_preserves_pydantic_output():
+    class FamilyList(BaseModel):
+        families: list[str]
+
+    attempts = 0
+
+    def guardrail_fn(
+        output: TaskOutput,
+    ) -> tuple[bool, str | TaskOutput]:
+        nonlocal attempts
+        attempts += 1
+        assert isinstance(output.pydantic, FamilyList)
+        if attempts == 1:
+            return False, "Try again with a corrected family list"
+        return True, output
+
+    researcher = Agent(
+        role="Researcher",
+        goal="Return structured family data",
+        backstory="You produce structured family data.",
+        allow_delegation=False,
+    )
+
+    task = Task(
+        description="Generate a family list.",
+        expected_output="A FamilyList response.",
+        output_pydantic=FamilyList,
+        agent=researcher,
+        guardrail=guardrail_fn,
+        guardrail_max_retries=1,
+    )
+
+    with patch.object(
+        Agent,
+        "execute_task",
+        side_effect=[
+            FamilyList(families=["first"]),
+            FamilyList(families=["second"]),
+        ],
+    ):
+        result = task.execute_sync()
+
+    assert attempts == 2
+    assert isinstance(result.pydantic, FamilyList)
+    assert result.pydantic.families == ["second"]
+    assert json.loads(result.raw) == {"families": ["second"]}
+    assert task.retry_count == 1
+
+
 @pytest.mark.vcr()
 def test_output_pydantic_sequential():
     class ScoreOutput(BaseModel):

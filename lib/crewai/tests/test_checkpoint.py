@@ -11,16 +11,18 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic import BaseModel
 
 from crewai.agent.core import Agent
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from crewai.crew import Crew
-from crewai.flow.flow import Flow, start
+from crewai.flow.flow import Flow, FlowState, start
 from crewai.state.checkpoint_config import CheckpointConfig
 from crewai.state.checkpoint_listener import (
     _find_checkpoint,
     _resolve,
     _SENTINEL,
+    _do_checkpoint,
 )
 from crewai.state.provider.json_provider import JsonProvider
 from crewai.state.provider.sqlite_provider import SqliteProvider
@@ -185,6 +187,38 @@ class TestCheckpointConfig:
             on_events=["task_completed", "crew_kickoff_completed"]
         )
         assert cfg.trigger_events == {"task_completed", "crew_kickoff_completed"}
+
+
+def test_flow_checkpoint_handles_nested_pydantic_models(tmp_path) -> None:
+    class Family(BaseModel):
+        family_id: int
+        name: str
+
+    class FamilyState(FlowState):
+        families: list[Family] = []
+
+    class FamilyFlow(Flow[FamilyState]):
+        initial_state = FamilyState
+
+        @start()
+        def create_family(self) -> None:
+            self.state.families = [Family(family_id=1, name="Smith")]
+
+    checkpoint_dir = str(tmp_path / "checkpoints")
+    cfg = CheckpointConfig(
+        location=checkpoint_dir,
+        on_events=["method_execution_finished"],
+        provider=JsonProvider(),
+    )
+    flow = FamilyFlow()
+    flow.kickoff()
+
+    state = RuntimeState(root=[flow])
+    _do_checkpoint(state, cfg)
+    branch_dir = os.path.join(checkpoint_dir, "main")
+    assert os.path.isdir(branch_dir)
+    files = [name for name in os.listdir(branch_dir) if name.endswith(".json")]
+    assert files
 
 
 # ---------- RuntimeState lineage ----------

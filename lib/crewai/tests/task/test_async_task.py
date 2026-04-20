@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from crewai.agent import Agent
 from crewai.task import Task
+from pydantic import BaseModel
 from crewai.tasks.task_output import TaskOutput
 from crewai.tasks.output_format import OutputFormat
 
@@ -284,6 +285,49 @@ class TestAsyncGuardrails:
 
         assert result is not None
         assert call_count == 2
+
+    @pytest.mark.asyncio
+    @patch("crewai.Agent.aexecute_task", new_callable=AsyncMock)
+    async def test_ainvoke_guardrail_retry_preserves_pydantic_output(
+        self, mock_execute: AsyncMock, test_agent: Agent
+    ) -> None:
+        """Test async guardrail retries preserve structured BaseModel outputs."""
+
+        class FamilyList(BaseModel):
+            families: list[str]
+
+        mock_execute.side_effect = [
+            FamilyList(families=["first"]),
+            FamilyList(families=["second"]),
+        ]
+        call_count = 0
+
+        def guardrail_fn(
+            output: TaskOutput,
+        ) -> tuple[bool, str | TaskOutput]:
+            nonlocal call_count
+            call_count += 1
+            assert isinstance(output.pydantic, FamilyList)
+            if call_count == 1:
+                return False, "Try again with a corrected family list"
+            return True, output
+
+        task = Task(
+            description="Test task",
+            expected_output="Test output",
+            agent=test_agent,
+            output_pydantic=FamilyList,
+            guardrail=guardrail_fn,
+            guardrail_max_retries=1,
+        )
+
+        result = await task.aexecute_sync()
+
+        assert result is not None
+        assert call_count == 2
+        assert isinstance(result.pydantic, FamilyList)
+        assert result.pydantic.families == ["second"]
+        assert result.raw == '{"families":["second"]}'
 
     @pytest.mark.asyncio
     @patch("crewai.Agent.aexecute_task", new_callable=AsyncMock)

@@ -793,10 +793,25 @@ class FlowMeta(ModelMetaclass):
                 continue
             if attr_name in parent_fields:
                 annotations[attr_name] = Any
+                parent_field = next(
+                    (
+                        base.model_fields.get(attr_name)
+                        for base in bases
+                        if hasattr(base, "model_fields")
+                        and base.model_fields.get(attr_name) is not None
+                    ),
+                    None,
+                )
+                field_kwargs = {}
+                if parent_field is not None:
+                    field_kwargs["exclude"] = parent_field.exclude
                 if isinstance(attr_value, BaseModel):
                     namespace[attr_name] = Field(
-                        default_factory=lambda v=attr_value: v, exclude=True
+                        default_factory=lambda v=attr_value: v,
+                        **field_kwargs,
                     )
+                elif parent_field is not None:
+                    namespace[attr_name] = Field(default=attr_value, **field_kwargs)
                 continue
             if callable(attr_value) or isinstance(
                 attr_value, (*_skip_types, FlowMethod)
@@ -908,7 +923,7 @@ class Flow(BaseModel, Generic[T], metaclass=FlowMeta):
 
     entity_type: Literal["flow"] = "flow"
 
-    initial_state: Any = Field(default=None)
+    initial_state: Any = Field(default=None, exclude=True)
     name: str | None = Field(default=None)
     tracing: bool | None = Field(default=None)
     stream: bool = Field(default=False)
